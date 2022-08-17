@@ -1,7 +1,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-   <img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/cover.png" alt="Logo" width="300" height="300">
+   <img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/cover.png" alt="Logo" width="900" height="400">
 
   <h3 align="center">Bare metal stm32h7</h3>
 
@@ -47,7 +47,7 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-This example shows how to establish a serial communication between the stm32h743 microcontroller and Simulink running on a development computer in order to perform Hardware-In-the-Loop (HIL) simulation. The serial connection between the board and the development computer is enabled using the UART protocole so that data are exchanged serially between the host and target. 
+This example shows how to establish a serial communication between the stm32h743 microcontroller and Simulink running on a development computer in order to perform Hardware-In-the-Loop (HIL) simulations. The serial connection between the board and the development computer is enabled using the UART protocole so that data are exchanged serially between the host and the target. 
 A case study is considered where a simplified point-mass model of an aircraft in Simulink is controlled by the microcontroller with a PID.
 
 This project does not rely on HAL libraries and the code can be built and flashed using GNU make (so that you do not need any IDE such as STM32CubeIDE) and the GNU ARM Embedded Toolchain. The code was tested with the stm32h743vit6 development board from <a href="https://github.com/mcauser/MCUDEV_DEVEBOX_H7XX_M">DevEBox</a> but could be easily adapted for any configuration. The board can be purchased on  <a href="https://www.banggood.com/STM32H750VBT6-or-STM32H743VIT6-STM32H7-Development-Board-STM32-System-Board-M7-Core-Board-TFT-Interface-with-USB-Cable-p-1661383.html?cur_warehouse=CN&ID=6288383">Banggood</a>. 
@@ -60,12 +60,12 @@ This project does not rely on HAL libraries and the code can be built and flashe
 * [Matlab / Simulink](https://uk.mathworks.com/products/matlab.html)
 
 ### Detailed description
-The software consists in two parts: the program running on the microcontroller (stm32h743) and the Simulink model for the simulator. 
+The software consists of two parts: the program running on the microcontroller (stm32h743) and the Simulink model for the simulator. 
 
-#### stm32h743
+#### 1) stm32h743
 The program on the stm32h743 configures the PB12, PB13 pins for UART5. The UART protocole is kept in the default configuration (`8N1`) and the baud rate is set to `38400`.
 
-The main loop sequentially receives feedback data on the true airspeed of the aircraft from Simulink, compute a control law using a PID controller, and send the control command back to the simulator. 
+The main loop sequentially receives feedback data from the aircraft model in Simulink, computes a control law using a PID controller, and sends the control command back to the simulator. 
 
 The receive and send functions are implemented as follows, relying on the UART peripheral (`UART5`): 
 ```C
@@ -93,7 +93,7 @@ The blocking mode allows us to make sure that the transmit register is empty bef
 
 Since the data have to be sent/received byte per byte as per the UART protocole (8 bits at a time), and since we want to manipulate objects with type `float` (4 bytes), we define the following union type: 
 ```C
-typedef union {
+typedef union {  // allows us to store different data types in the same memory location
   float single;
   uint8_t bytes[4];
 } custom_float_t;
@@ -113,32 +113,28 @@ which allows us to store the data byte per byte as they are received into the un
 float TAS = rcv.single;  // store the 4 bytes as a float
 ```
 
-Once the true airspeed of the aircraft is received and stored in a variable, a PID controller is implemented, computing a control law of the form: 
+Once the true airspeed of the aircraft is received and stored in a variable, a PID controller is implemented, computing a control law $u_k$ of the form: 
 
-```latex
-u_k = k_p (v_k^* - v_k) + k_i \sum_{i=0}^k (v_i^* - v_i) d + k_d (v_{k-1} - v_{k})/d 
-```
+$$ u_k = k_p (v_k^* - v_k) + k_i \sum_{i=0}^k (v_i^* - v_i) d + k_d (v_{k-1} - v_{k})/d $$
 
-When sending data back to Simulink, note that a header (`'A'`) and a terminator (`'\0'`) character should be prepended and appended to the data sent in order to improve the robustness of the data exchange by allowing Simulink to synchronise with the data sent by the microcontroller. 
+where $v_k$, $v_k^*$ are the TAS and reference TAS at step $k$, $k_p$, $k_i$, $k_d$ are PID gains, and $d$ is the time step. 
 
-
-
-Note: the system clock frequency is set to 480MHz, assuming the presence of a 25MHz high speed external (HSE) crystal. If you do not use a HSE or if you have an older version of the chip* you might have to modify the clock configuration function or rely on the default internal oscillator (64MHz). In that case you will have to change the baud rate register (e.g. with the internal oscillator at 64MHz and baud rate of 38400, the BRR should be modified with: uint16_t uartdiv = 64000000 / 38400;)
-
-The program allows a user to interact with the microcontroller to flash the PA1 LED (D2) a given number of times (between 0 and 9). The program then returns an echo message. 
-
-*Note that stmicroelectronics recently introduced a new version of their chip (version V) able to operate at up to 480MHz.
-
-#### Simulink
-
-<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/sim.png" alt="Logo" width="300" height="300">
+When sending data back to Simulink, note that a header (`'A'`) and a terminator (`'\0'`) character should be prepended and appended to the data sent in order to improve the robustness of the data exchange, allowing Simulink to synchronise with the data sent by the microcontroller. 
 
 
-The Simulink model can be separated into two main subsystems: the "COM to microcontroller" block responsible for data exchange and the "Aircraft model" block. The latter implements a simple point-mass model of an aircraft in level flight and take the commanded thrust (from the microcontroller) as an input and outputs the updated true airspeed (TAS). The TAS is then fed back to the "COM to microcontroller" block so that a control law is implemented on the hardware. 
+
+Note: the system clock frequency is set to 480MHz, assuming the presence of a 25MHz high speed external (HSE) crystal. If you do not use a HSE or if you have an older version of the chip you might have to modify the clock configuration function or rely on the default internal oscillator (64MHz). In that case you will have to change the baud rate register (e.g. with the internal oscillator at 64MHz and baud rate of 38400, the BRR should be modified with: uint16_t uartdiv = 64000000 / 38400;)
+
+#### 2) Simulink
+
+<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/sim.png" alt="Logo" width="600" height="300">
+
+
+The Simulink model can be separated into two main subsystems: the "COM to microcontroller" block responsible for data exchange and the "Aircraft model" block. The latter implements a simple point-mass model of an aircraft in level flight and take the commanded thrust (from the microcontroller) as input and outputs the updated true airspeed (TAS). The TAS is then fed back to the "COM to microcontroller" block so that a control law is implemented on the hardware. 
 
 We will mainly discuss the "COM to microcontroller" block here as the physics of the aircraft is irrelevant and just serves as an example for this case study. The content of the "COM to microcontroller" subsystem is as follows:
 
-<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/block_parameters.png" alt="Logo" width="300" height="300">
+<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/COM_module.png" alt="Logo" width="900" height="400">
 
 The reception chain (upper part of the figure) consists of the "Receive from stm32h743" and "Cast to double" blocks. They are responsible for acquiring the control command computed on the stm32h7 chip and converting the data for use in the simulation.
 The transmission chain (lower part of the figure) consists of the "Zero Order Hold", "Cast to single", "Byte pack" and "Send to stm32h743" blocks. These blocks are responsible for respectively sampling, converting, packing and sending the data from the simulation to the chip. 
@@ -146,7 +142,7 @@ Finally, the "UART Configuration" block is responsible for configuring the seria
 
 We now detail the configuration of all blocks
 
-##### "Receive from stm32h743":
+#### "Receive from stm32h743":
 Acquire data from the chip. Configuration: 
 * **COM port name:** specify the name of the COM port associated with the device (in my setup it was `/dev/cu.usbserial-14201` but yours will certainly have a different name).  
 * **Header and terminator:** add header (`'A'`) and terminator (`'\0'`) characters. This allows Simulink to know when a message starts and ends and prevent synchronisation issues. 
@@ -155,31 +151,31 @@ Acquire data from the chip. Configuration:
 * **Enable blocking mode:** tick the box to receive in blocking mode.
 * **Block sample time:** set to 0.1s.
 
-##### "Cast to double":
+#### "Cast to double":
 Convert input data to double.
 
-##### "Zero Order Hold":
+#### "Zero Order Hold":
 Hold the input for the specified sample period. Configuration: 
 
 * **sample time:** set to 0.1s. 
 
-##### "Cast to single":
+#### "Cast to single":
 Convert input data to single.
 
-##### "Byte pack":
+#### "Byte pack":
 Pack input data into a single output vector of required type. In our case, this has the effect of converting a `single` into 4 bytes. Configuration:
 
 * **input type:** set to `{'single'}`.
 * **output type:** set to `uint32_t` since 1 `single` is 4 bytes, i.e 1 `uint32_t`.
 * **byte alignment:** set to 4 as we want the 4 bytes in the input `single` to be sent as 1 `uint32_t`.
 
-##### "Send to stm32h743":
+#### "Send to stm32h743":
 Send data to the chip. Configuration:
 
 * **COM port name:** specify the name of the COM port associated with the device (same as previously)  
 * **Enable blocking mode:** tick the box to send in blocking mode.
 
-##### "UART Configuration":
+#### "UART Configuration":
 Configure the serial port. Configuration:
 
 * **COM port name:** specify the name of the COM port associated with the device (same as previously)  
@@ -192,12 +188,11 @@ Configure the serial port. Configuration:
 * **Timeout:** `10`.  
 
 
-The blocks configuration is summarized below: 
+The blocks configuration is summarised below: 
 
-<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/COM_module.png" alt="Logo" width="300" height="300">
+<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/block_parameters.png" alt="Logo" width="1200" height="500">
 
-
-Credit: this part of the project was inspired by the tutorial [here](https://github.com/leomariga/Simulink-Arduino-Serial). 
+Credit: this part of the project was inspired from the tutorial [here](https://github.com/leomariga/Simulink-Arduino-Serial). 
 
 <!-- GETTING STARTED -->
 ## Getting Started
@@ -231,7 +226,7 @@ You need to install the following:
    make flash
    ```
 4. Disconnect the st-link V2 debugger and connect the board to a development computer with a USB TTL serial adapter according to the following schematics:
-<img src="https://github.com/martindoff/baremetal-stm32h743-HIL/blob/main/img/stm32-uart.jpg" alt="Logo" width="300" height="300">
+<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/stm32-uart.jpg" alt="Logo" width="300" height="300">
 
 5. Find the name of the COM port. In macOS, this can be found in the /dev directory and starts by the prefix 
 `/dev/cu`. 
@@ -241,14 +236,17 @@ You need to install the following:
 ```
 7. Open the simulink model 'uart.slx' and modify the name of the COM port in the serial configuration, send and receive blocks. If you do not find the name of your COM port in the drop down list, you might have to unplug/replug the board and shut down / restart Matlab / Simulink. 
 8. Run the simulation and observe the true airspeed reach the 80m/s setpoint and the commanded thrust sent by the microcontroller to control the model.
-<img src="https://github.com/martindoff/baremetal-stm32h743-HIL/blob/main/img/results.png" alt="Logo" width="300" height="300">
+<img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/results.png" alt="Logo" width="900" height="400">
 
 9. Note that if you restart the simulation without unplugging or reseting the board, you will obtain a different result. This is because the integral term of the PID will have accumulated error values from the previous simulation and will thus have a different value than at initialisation. It is best to reset the chip before running any new instance of the simulation in order to avoid any surprises.
 
 <!-- ROADMAP -->
 ## Roadmap
 
-Starting from this HIL simulation example, more sophisticated controllers can be developed and tested on any Simulink models. 
+Starting from this HIL simulation example, more sophisticated controllers can be developed and tested on any Simulink model. Direct extensions of this project are: 
+
+* sending / receiving arrays of `float` (exchanging several variables per time step).
+* make sure that the control loop runs at the same frequency as the simulation. This involves for example implementing a precise delay function. 
 
 <!-- CONTRIBUTING -->
 ## Contributing
