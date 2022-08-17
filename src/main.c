@@ -1,11 +1,11 @@
 /*==============================================================================
  * Name        : main.c
  * Author      : Martin Doff-Sotta (martin.doff-sotta@eng.ox.ac.uk) 
- * Description : A blinky example for the stm32h743
+ * Description : HIL simulation for the stm32h743
  * Note        : Tested on stm32h743vit6 (version V) development board from DevEBox 
  -------------------------------------------------------------------------------
  * The MIT License (MIT)
- * Copyright (c) 2021 Martin Doff-Sotta
+ * Copyright (c) 2022 Martin Doff-Sotta
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -26,8 +26,12 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
+
+
+// Uncomment this if you want to use the printf function (for debug purpose)
+/*
+#include <stdio.h>   // to use the printf function
+#include <string.h>  // to use strings 
 
 // Override the 'write' clib method to implement 'printf' over UART.
 int _write(int handle, char* data, int size) {
@@ -41,20 +45,22 @@ int _write(int handle, char* data, int size) {
   }
   return size;
 }
+*/
 
+/* Custom types --------------------------------------------------------------*/
 typedef union {
-  float number;
+  float single;
   uint8_t bytes[4];
-} FLOATUNION_t;
+} custom_float_t;
 
 /* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-void toggle_LED(void);
+static void SystemClock_Config(void);
 static void LED_Init(void);
 static void UART_Init(void);
-void UART_send_blocking(uint8_t*);
-void UART_rcv_blocking(uint8_t*);
-void delay(int comp); 
+static inline void toggle_LED(void);
+static inline void UART_send_blocking(uint8_t*);
+static inline void UART_rcv_blocking(uint8_t*);
+static inline void delay(int comp); 
 
 /**
   * The application entry point.
@@ -68,44 +74,50 @@ int main(void)
   /* Initialize all configured peripherals */
   LED_Init();
   UART_Init();
-  GPIOA->ODR     |=  GPIOA1;    // LED in OFF state
   
-  /* Infinite loop */
-  FLOATUNION_t rcv;
-  FLOATUNION_t snd;
-  float TAS = 0.0;
-  float ref_TAS = 80.0;
-  float k_p = 500.0; 
-  float k_i = 30.0;
-  float u = 0.0;
-  float err = 0.0;
-  float sum_err = 0.0;
+  /* Initialise variables */
+  float TAS = 0;
+  float ref_TAS = 80;
+  float k_p = 500; 
+  float k_i = 30;
+  float k_d = 10; 
+  float u = 0;
+  float err = 0;
+  float sum_err = 0;
+  float diff_err = 0.0;
+  float old_TAS = 66.5; 
   float d = 0.1; 
-  uint8_t ch = '\0'; 
+  uint8_t ch = '\0';
+  custom_float_t rcv;
+  custom_float_t snd;
+  
+  /* Infinite loop */ 
   while (1)
   {
 
-    	//Reception
+    	// Reception from Simulink
     	for (int i=0; i<4; i++)
     	{
             UART_rcv_blocking(&rcv.bytes[i]);
     	}
     	                   
     	// Controller (PID)
-    	TAS = rcv.number;
-    	err = ref_TAS-TAS;
-    	sum_err += err*d; 
-    	u = k_p*err + k_i*sum_err;
+    	TAS = rcv.single;                          // get true airspeed (TAS)
+    	err = ref_TAS-TAS;                         // proportional action
+    	diff_err = (old_TAS-TAS)/d;                // derivative action 
+    	sum_err += err*d;                          // integral action 
+    	u = k_p*err + k_i*sum_err + k_d*diff_err;  // control law
+    	old_TAS = TAS;                           
+    	snd.single = u; 
     	
-    	// Transmission
-    	snd.number = u; 
-    	ch = 'A';
+    	// Transmission to Simulink
+    	ch = 'H';                                  // header for synchronisation
         UART_send_blocking(&ch);
     	for (int i=0; i<4; i++)
     	{
             UART_send_blocking(&snd.bytes[i]);
     	}
-    	ch = '\n'; 
+    	ch = '\0';                                 // terminator for synchronisation
         UART_send_blocking(&ch);
         
       
@@ -113,13 +125,7 @@ int main(void)
 
 }
 
-void toggle_LED(void)
-{
-	GPIOA->ODR &= ~GPIOA1;  // pull down (clear) => ON
-    delay(30000000);
-    GPIOA->ODR |=  GPIOA1;  // pull up (set) => OFF
-    delay(30000000);
-}
+
 /**
   * Configure peripherals for LED blink
   */
@@ -129,19 +135,20 @@ static void LED_Init(void)
   //Initialize all configured peripherals
   RCC_AHB4ENR |= RCC_AHB4ENR_GPIOAEN;
 
-  // Set GPIO #PA1
-  GPIOA->MODER   |=  (1 << 2);  // GPIO port mode register (general purpose output mode) 
-  GPIOA->MODER   &= ~(1 << 3);  
-  GPIOA->OTYPER  |=  (0 << 1);  // GPIO port output type register (Output push-pull)
-  GPIOA->OSPEEDR |=  (0 << 2);  // GPIO port output speed register (Low speed)
-  GPIOA->OSPEEDR |=  (0 << 3);
-  GPIOA->PUPDR   |=  (0 << 2);  // GPIO port pull-up/pull-down register (No pull-up/-down)
-  GPIOA->PUPDR   |=  (0 << 3);
+  // Set PA1 to output push-pull
+  GPIOA->MODER   &=  ~(0x3UL << 2U);
+  GPIOA->MODER   |=   (0x1UL << 2U);  //-> 01 in MODER1[1:0] (General purpose output mode)
+  GPIOA->OTYPER  &=  ~(0x1UL << 1U);
+  GPIOA->OTYPER  |=   (0x0UL << 1U);  //-> 0 in OT1 (Output push-pull)
+  GPIOA->OSPEEDR &=  ~(0x3UL << 2U);
+  GPIOA->OSPEEDR |=   (0x0UL << 2U);  //-> 00 in OSPEEDR1[1:0] (Low speed)
+  GPIOA->PUPDR   &=  ~(0x3UL << 2U);
+  GPIOA->PUPDR   |=   (0x0UL << 2U);  //-> 00 in PUPDR1[1:0] (No pull-up/-down)
 }
 
 /**
-  * Configure peripherals for UART
-  * PB12: UART5_RX, PB13: UART5_TX
+  * Configure UART5 peripherals
+  * PB12: UART5_RX (receive), PB13: UART5_TX (transmit)
   */
 static void UART_Init(void)
 {
@@ -175,7 +182,8 @@ static void UART_Init(void)
   GPIOB->AFR[1]  |=   (0xEUL << 16U); // AFR12[3:0] <- 0x1110 to set PB12 as AFR14 (UART5)
   
   // Set baudrate (oversampling by 16)
-  uint16_t uartdiv = 120000000 / 38400;
+  uint16_t uartdiv = 120000000 / 38400;  
+  //uartdiv = 64000000 / 38400;  // uncomment if HSI (default clock) is used
   UART5->BRR = uartdiv;
   
   
@@ -187,14 +195,14 @@ static void UART_Init(void)
 /**
   * System Clock Configuration
   */
-void SystemClock_Config(void)
+static void SystemClock_Config(void)
 {
     uint32_t __attribute((unused)) tmpreg ; 
 
     /**  1) Boost the voltage scaling level to VOS0 to reach system maximum frequency **/
 	
     // Supply configuration update enable
-    MODIFY_REG (PWR->CR3, (PWR_CR3_SCUEN | PWR_CR3_LDOEN | PWR_CR3_BYPASS),  PWR_CR3_LDOEN);
+    MODIFY_REG(PWR->CR3, (PWR_CR3_SCUEN | PWR_CR3_LDOEN | PWR_CR3_BYPASS), PWR_CR3_LDOEN);
     for(int i=0; i<1500000;i++){__asm__("nop");}
   
     // Configure the Voltage Scaling 1 in order to modify ODEN bit 
@@ -207,7 +215,7 @@ void SystemClock_Config(void)
     tmpreg = READ_BIT(SYSCFG->PWRCR, SYSCFG_PWRCR_ODEN);
 
     // Wait for VOS to be ready
-    while( (PWR->D3CR & PWR_D3CR_VOSRDY) != PWR_D3CR_VOSRDY) {}
+    while((PWR->D3CR & PWR_D3CR_VOSRDY) != PWR_D3CR_VOSRDY) {}
 
 	/** 2) Oscillator initialisation **/
 
@@ -240,18 +248,22 @@ void SystemClock_Config(void)
 	// Disable PLLFRACN
 	RCC->PLLCFGR &= ~(0x1UL << 0U);
 
-	//  Configure PLL  PLL1FRACN //__HAL_RCC_PLLFRACN_CONFIG(RCC_OscInitStruct->PLL.PLLFRACN);
+	//  Configure PLL  PLL1FRACN 
+	//__HAL_RCC_PLLFRACN_CONFIG(RCC_OscInitStruct->PLL.PLLFRACN);
 	RCC -> PLL1FRACR = 0;
 
-	//Select PLL1 input reference frequency range: VCI //__HAL_RCC_PLL_VCIRANGE(RCC_OscInitStruct->PLL.PLLRGE) ;
+	//Select PLL1 input reference frequency range: VCI 
+	//__HAL_RCC_PLL_VCIRANGE(RCC_OscInitStruct->PLL.PLLRGE) ;
 	//RCC->PLLCFGR |= RCC_PLLCFGR_PLL1RGE_3;
 	RCC->PLLCFGR |= (0x2UL << 2U);
 
-	// Select PLL1 output frequency range : VCO //__HAL_RCC_PLL_VCORANGE(RCC_OscInitStruct->PLL.PLLVCOSEL) ;
+	// Select PLL1 output frequency range : VCO 
+	//__HAL_RCC_PLL_VCORANGE(RCC_OscInitStruct->PLL.PLLVCOSEL) ;
 	//RCC->PLLCFGR &= ~RCC_PLLCFGR_PLL1VCOSEL;
 	RCC->PLLCFGR |= (0x0UL << 1U);
 
-	// Enable PLL System Clock output. // __HAL_RCC_PLLCLKOUT_ENABLE(RCC_PLL1_DIVP);//Bit 16 DIVP1EN: PLL1 DIVP divider output enable
+	// Enable PLL System Clock output. // __HAL_RCC_PLLCLKOUT_ENABLE(RCC_PLL1_DIVP);
+	//Bit 16 DIVP1EN: PLL1 DIVP divider output enable
 	RCC->PLLCFGR |= RCC_PLLCFGR_DIVP1EN;
 
 	// Enable PLL1Q Clock output. //__HAL_RCC_PLLCLKOUT_ENABLE(RCC_PLL1_DIVQ);
@@ -273,7 +285,7 @@ void SystemClock_Config(void)
 	RCC -> D1CFGR |= (0x08UL << 0U);
 
 
-	//D1CPRE[3:0]: D1 domain Core prescaler //0xxx: sys_ck not divided (default after reset)
+	//D1CPRE[3:0]: D1 domain Core prescaler //0xxx: sys_ck not div. (default after reset)
 	RCC -> D1CFGR |= (0x0UL << 8U);
 
 	//SW[2:0]: System clock switch//011: PLL1 selected as system clock (pll1_p_ck)
@@ -296,31 +308,43 @@ void SystemClock_Config(void)
 
 	//Update global variables
 	const  uint8_t D1CorePrescTable[16] = {0, 0, 0, 0, 1, 2, 3, 4, 1, 2, 3, 4, 6, 7, 8, 9};
-	SystemD2Clock = (480000000 >> ((D1CorePrescTable[(RCC->D1CFGR & RCC_D1CFGR_HPRE)>> RCC_D1CFGR_HPRE_Pos]) & 0x1FU));
+	SystemD2Clock = (480000000 >> ((D1CorePrescTable[(RCC->D1CFGR & RCC_D1CFGR_HPRE)
+	                                                   >> RCC_D1CFGR_HPRE_Pos]) & 0x1FU));
 	SystemCoreClock = 480000000;
+}
+
+/**
+  * Flash the D2 LED
+  */
+static inline void toggle_LED(void)
+{
+	GPIOA->ODR &= ~GPIOA1;  // pull down (clear) => ON
+    delay(30000000);
+    GPIOA->ODR |=  GPIOA1;  // pull up (set) => OFF
+    delay(30000000);
 }
 
 /**
   * Simulate a time delay 
   */
-void delay(int comp)
+static inline void delay(int comp)
 {
 for(int i=0; i < comp; i++){__asm__("nop");}
 }
 
 /**
-  * Send in blocking mode
+  * Send in blocking mode using UART5 peripheral
   */
-void UART_send_blocking(uint8_t* byte)
+static inline void UART_send_blocking(uint8_t* byte)
 {
     while(!(UART5->ISR & USART_ISR_TXE_TXFNF)){}; // wait for empty transmit register
     UART5->TDR = *byte;
 }
 
 /**
-  * Receiving in blockin mode 
+  * Receiving in blockin mode using UART5 peripheral 
   */
-void UART_rcv_blocking(uint8_t* byte)
+static inline void UART_rcv_blocking(uint8_t* byte)
 {
     while(!(UART5->ISR & USART_ISR_RXNE_RXFNE)){}; // wait for non empty read register
     *byte = UART5->RDR;
