@@ -57,7 +57,7 @@ This project does not rely on HAL libraries and the code can be built and flashe
 * [GNU make](https://www.gnu.org/software/make/)
 * [GNU ARM Embedded Toolchain](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm/downloads)
 * C
-* [Matlab / Simulink](https://uk.mathworks.com/products/matlab.html)
+* [Matlab / Simulink R2021b](https://uk.mathworks.com/products/matlab.html)
 
 ### Detailed description
 The software consists of two parts: the program running on the microcontroller (stm32h743) and the Simulink model for the simulator. 
@@ -192,6 +192,7 @@ The blocks configuration is summarised below:
 
 <img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/block_parameters.png" alt="Logo" width="1200" height="500">
 
+
 Credit: this part of the project was inspired from the tutorial [here](https://github.com/leomariga/Simulink-Arduino-Serial). 
 
 <!-- GETTING STARTED -->
@@ -205,7 +206,7 @@ You need to install the following:
 * git 
 * st-link 
 * GNU ARM toolchain 
-* Matlab / Simulink, especially the Simulink Support Package for Arduino Hardware (sic) for the byte pack block and the Instrument Control Toolbox for the serial blocks
+* Matlab / Simulink, especially the Simulink Support Package for Arduino Hardware (sic) for the byte pack block and the Instrument Control Toolbox for the serial blocks. Version R2021b was used. 
 
 ### Installation
 
@@ -234,7 +235,7 @@ You need to install the following:
  ```matlab
    param_init
 ```
-7. Open the simulink model 'uart.slx' and modify the name of the COM port in the serial configuration, send and receive blocks. If you do not find the name of your COM port in the drop down list, you might have to unplug/replug the board and shut down / restart Matlab / Simulink. 
+7. (You need at least Simulink R2021b to run the model) Open the simulink model 'uart.slx' and modify the name of the COM port in the serial configuration, send and receive blocks. If you do not find the name of your COM port in the drop down list, you might have to unplug/replug the board and shut down / restart Matlab / Simulink. 
 8. Run the simulation and observe the true airspeed reach the 80m/s setpoint and the commanded thrust sent by the microcontroller to control the model.
 <img src="https://github.com/martindoff/bare-metal-stm32h743-HIL/blob/main/img/results.png" alt="Logo" width="900" height="400">
 
@@ -247,6 +248,7 @@ Starting from this HIL simulation example, more sophisticated controllers can be
 
 * sending / receiving arrays of `float` (exchanging several variables per time step).
 * make sure that the control loop runs at the same frequency as the simulation. This involves for example implementing a precise delay function. 
+* execute the Simulink model in real time would be more realistic. 
 
 <!-- CONTRIBUTING -->
 ## Contributing
